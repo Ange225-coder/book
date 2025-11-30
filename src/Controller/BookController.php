@@ -13,9 +13,12 @@
     use Symfony\Component\HttpFoundation\JsonResponse;
     use Symfony\Component\HttpFoundation\Response;
     use Symfony\Component\Routing\Generator\UrlGeneratorInterface;
+    use Symfony\Component\Security\Http\Attribute\IsGranted;
     use Symfony\Component\Serializer\Normalizer\AbstractNormalizer;
     use Symfony\Component\Serializer\SerializerInterface;
     use Symfony\Component\Validator\Validator\ValidatorInterface;
+    use Symfony\Contracts\Cache\ItemInterface;
+    use Symfony\Contracts\Cache\TagAwareCacheInterface;
 
     class BookController extends AbstractController
     {
@@ -26,7 +29,8 @@
             private readonly RequestStack $requestStack,
             private readonly UrlGeneratorInterface $urlGenerator,
             private readonly AuthorRepository $authorRepository,
-            private readonly ValidatorInterface $validator
+            private readonly ValidatorInterface $validator,
+            private readonly TagAwareCacheInterface $cache
         ){}
 
 
@@ -34,9 +38,20 @@
         #[Route('/api/books', name: 'books', methods: ['GET'])]
         public function booksList(): JsonResponse
         {
-            $books = $this->bookRepository->findAll();
+            // Make pagination
+            $request = $this->requestStack->getCurrentRequest();
+            $page = $request->get('page', 1);
+            $limit = $request->get('limit', 3);
 
-            $jsonBooks = $this->serializer->serialize($books, 'json', ['groups' => 'getBooks']);
+            // Cache system
+            $idCache = 'booksList-'.$page.'-'.$limit;
+            $jsonBooks = $this->cache->get($idCache, function (ItemInterface $item) use ($page, $limit) {
+                // pour le debug
+                echo ("pas encore en cache\n");
+                $item->tag('booksListCache');
+                $books = $this->bookRepository->findAllWithPagination($page, $limit);
+                return $this->serializer->serialize($books, 'json', ['groups' => 'getBooks']);
+            });
 
             return new JsonResponse($jsonBooks, Response::HTTP_OK, [], true);
         }
@@ -54,23 +69,19 @@
 
         // Supprimer un livre en fonction de son {{id}}
         #[Route(path: '/api/books/{id}', name: 'removeBook', methods: ['DELETE'])]
-        public function removeBook(int $id): JsonResponse
+        public function removeBook(Book $book): JsonResponse
         {
-            $book = $this->bookRepository->find($id);
+            $this->cache->invalidateTags(['booksListCache']);
+            $this->entityManager->remove($book);
+            $this->entityManager->flush();
 
-            if ($book) {
-                $this->entityManager->remove($book);
-                $this->entityManager->flush();
-
-                return new JsonResponse(null, Response::HTTP_NO_CONTENT);
-            }
-
-            return new JsonResponse(["message" => "Aucun livre trouvé"], Response::HTTP_NOT_FOUND);
+            return new JsonResponse(null, Response::HTTP_NO_CONTENT);
         }
 
 
         // Création d'un livre
         #[Route(path: '/api/books', name: 'createBook', methods: ['POST'])]
+        #[IsGranted('ROLE_ADMIN', message: 'Vous n\'avez pas les droits suffisants pour créer un livre')]
         public function createBook(): JsonResponse
         {
             $request = $this->requestStack->getCurrentRequest();

@@ -14,6 +14,8 @@
     use Symfony\Component\Serializer\Normalizer\AbstractNormalizer;
     use Symfony\Component\Serializer\SerializerInterface;
     use Symfony\Component\Validator\Validator\ValidatorInterface;
+    use Symfony\Contracts\Cache\ItemInterface;
+    use Symfony\Contracts\Cache\TagAwareCacheInterface;
 
     class AuthorController extends AbstractController
     {
@@ -23,7 +25,8 @@
             private readonly EntityManagerInterface $entityManager,
             private readonly RequestStack $requestStack,
             private readonly UrlGeneratorInterface $urlGenerator,
-            private readonly ValidatorInterface $validator
+            private readonly ValidatorInterface $validator,
+            private readonly TagAwareCacheInterface $cache
         ){}
 
 
@@ -32,46 +35,55 @@
         #[Route('/api/authors', name: 'authors', methods: ['GET'])]
         public function getAuthors(): JsonResponse
         {
-            $authors = $this->authorRepository->findAll();
+            $request = $this->requestStack->getCurrentRequest();
+            $page = $request->get('page', 1);
+            $limit = $request->get('limit', 3);
 
-            $authorsJson = $this->serializer->serialize($authors, 'json', ['groups' => 'getAuthors']);
+           $idCache = 'get_all_authors_'.$page.'_'.$limit;
+           $authorsJson = $this->cache->get($idCache, function (ItemInterface $item) use ($page, $limit) {
+               //debug
+               echo ("Pas encore en cache\n");
 
-            return new JsonResponse($authorsJson, 200, [], true);
+               $item->tag('authors_cache');
+               $authors = $this->authorRepository->findAllWithPagination($page, $limit);
+
+               return $this->serializer->serialize($authors, 'json', ['groups' => 'getAuthors']);
+           });
+
+            return new JsonResponse($authorsJson, Response::HTTP_OK, [], true);
         }
 
 
 
         // Get author details
         #[Route('/api/authors/{id}', name: 'authorDetails', methods: ['GET'])]
-        public function getAuthorDetails(int $id): JsonResponse
+        public function getAuthorDetails(Author $author): JsonResponse
         {
-            $author = $this->authorRepository->find($id);
+            $idCache = 'get_author_details_'.$author->getId();
+            $authorJson = $this->cache->get($idCache, function (ItemInterface $item) use ($author) {
+                // debug
+                echo ("Pas encore en cache\n");
 
-            if ($author) {
-                $authorJson = $this->serializer->serialize($author, 'json', ['groups' => 'getAuthors']);
+                $item->tag('authors_cache');
 
-                return new JsonResponse($authorJson, 200, [], true);
-            }
+                return $this->serializer->serialize($author, 'json', ['groups' => 'getAuthors']);
+            });
 
-            return new JsonResponse(['message' => 'Author non trouvé'], 404);
+            return new JsonResponse($authorJson, Response::HTTP_OK, [], true);
         }
 
 
 
         // Remove author
         #[Route(path: '/api/authors/{id}', name: 'remove_author', methods: ['DELETE'])]
-        public function removeAuthor(int $id): JsonResponse
+        public function removeAuthor(Author $author): JsonResponse
         {
-            $author = $this->authorRepository->find($id);
+            $this->cache->invalidateTags(['authors_cache']);
 
-            if ($author) {
-                $this->entityManager->remove($author);
-                $this->entityManager->flush();
+            $this->entityManager->remove($author);
+            $this->entityManager->flush();
 
-                return new JsonResponse(null, Response::HTTP_NO_CONTENT);
-            }
-
-            return new JsonResponse(['message' => 'Auteur non trouvé', Response::HTTP_NOT_FOUND]);
+            return new JsonResponse(null, Response::HTTP_NO_CONTENT);
         }
 
 
@@ -88,6 +100,8 @@
             if ($errors->count() > 0) {
                 return new JsonResponse($this->serializer->serialize($errors, 'json'), Response::HTTP_BAD_REQUEST, [], true);
             }
+
+            $this->cache->invalidateTags(['authors_cache']);
 
             $this->entityManager->persist($author);
             $this->entityManager->flush();
@@ -113,6 +127,8 @@
             if ($errors->count() > 0) {
                 return new JsonResponse($this->serializer->serialize($errors, 'json'), Response::HTTP_BAD_REQUEST, [], true);
             }
+
+            $this->cache->invalidateTags(['authors_cache']);
 
             $this->entityManager->persist($currentAuthor);
             $this->entityManager->flush();
