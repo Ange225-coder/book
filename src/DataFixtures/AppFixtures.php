@@ -55,6 +55,7 @@
                 $book->setTitle('titre ' . $i);
                 $book->setCoverText('Cover text number' . $i);
                 $book->setAuthor($listAuthors[array_rand($listAuthors)]);
+                $book->setComment('Commentaire - '.$i);
 
                 $manager->persist($book);
             }

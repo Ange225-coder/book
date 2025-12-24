@@ -24,6 +24,14 @@ security:
                 check_path: /api/login_check
                 success_handler: lexik_jwt_authentication.handler.authentication_success
                 failure_handler: lexik_jwt_authentication.handler.authentication_failure
+#            form_login:
+#                login_path: app_login
+#                check_path: app_login
+#                enable_csrf: true
+#            logout:
+#                path: app_logout
+                # where to redirect after logout
+                # target: app_any_route
 
 
         api:
@@ -43,6 +51,7 @@ security:
         # - { path: ^/admin, roles: ROLE_ADMIN }
         # - { path: ^/profile, roles: ROLE_USER }
         - { path: ^/api/login_check, roles: PUBLIC_ACCESS }
+        - { path: ^/api/doc, roles: PUBLIC_ACCESS }
         - { path: ^/api, roles: IS_AUTHENTICATED_FULLY }
 
 when@test:

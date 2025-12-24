@@ -5,8 +5,48 @@
     use App\Repository\BookRepository;
     use Doctrine\DBAL\Types\Types;
     use Doctrine\ORM\Mapping as ORM;
-    use Symfony\Component\Serializer\Annotation\Groups;
+    //use Symfony\Component\Serializer\Annotation\Groups;
+    use Hateoas\Configuration\Exclusion;
+    use JMS\Serializer\Annotation\Groups;
+    use JMS\Serializer\Annotation\Since;
     use Symfony\Component\Validator\Constraints as Assert;
+    use Hateoas\Configuration\Annotation as Hateoas;
+
+    // Lien d'auto-découvrabilité pour le GET {{id}}
+    #[Hateoas\Relation(
+        'self',
+        href: new Hateoas\Route(
+            'bookDetails',
+            parameters: ['id' => 'expr(object.getId())']
+        ),
+        exclusion: new Hateoas\Exclusion(groups: ['getBooks'])
+    )]
+
+    // Lien d'auto-découvrabilité pour le PUT {{id}}
+    #[Hateoas\Relation(
+        'update',
+        href: new Hateoas\Route(
+            'updateBook',
+            parameters: ['id' => 'expr(object.getId())']
+        ),
+        exclusion: new Hateoas\Exclusion(
+            groups: ['getBooks'],
+            excludeIf: "expr(not is_granted('ROLE_ADMIN'))"
+        )
+    )]
+
+    // Lien d'auto-découvrabilité pour le DELETE {{id}}
+    #[Hateoas\Relation(
+        'delete',
+        href: new Hateoas\Route(
+            'removeBook',
+            parameters: ['id' => 'expr(object.getId())']
+        ),
+        exclusion: new Hateoas\Exclusion(
+            groups: ['getBooks'],
+            excludeIf: "expr(not is_granted('ROLE_ADMIN'))"
+        )
+    )]
 
     #[ORM\Entity(repositoryClass: BookRepository::class)]
     class Book
@@ -38,6 +78,11 @@
         #[Groups(['getBooks'])]
         private ?Author $author = null;
 
+        #[ORM\Column(type: Types::TEXT, nullable: true)]
+        #[Groups(['getBooks'])]
+        #[Since("2.0")]
+        private ?string $comment = null;
+
 
 
         //Setters
@@ -51,6 +96,13 @@
         public function setCoverText(?string $coverText): static
         {
             $this->coverText = $coverText;
+
+            return $this;
+        }
+
+        public function setComment(?string $comment): static
+        {
+            $this->comment = $comment;
 
             return $this;
         }
@@ -86,4 +138,8 @@
             return $this;
         }
 
+        public function getComment(): ?string
+        {
+            return $this->comment;
+        }
     }

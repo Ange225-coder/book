@@ -6,6 +6,7 @@
     use App\Repository\AuthorRepository;
     use App\Repository\BookRepository;
     use Doctrine\ORM\EntityManagerInterface;
+    use JMS\Serializer\SerializationContext;
     use Symfony\Component\HttpFoundation\RequestStack;
     use Symfony\Component\HttpKernel\Exception\HttpException;
     use Symfony\Component\Routing\Annotation\Route;
@@ -15,22 +16,26 @@
     use Symfony\Component\Routing\Generator\UrlGeneratorInterface;
     use Symfony\Component\Security\Http\Attribute\IsGranted;
     use Symfony\Component\Serializer\Normalizer\AbstractNormalizer;
-    use Symfony\Component\Serializer\SerializerInterface;
+    //use Symfony\Component\Serializer\SerializerInterface;
     use Symfony\Component\Validator\Validator\ValidatorInterface;
     use Symfony\Contracts\Cache\ItemInterface;
     use Symfony\Contracts\Cache\TagAwareCacheInterface;
+    use JMS\Serializer\SerializerInterface;
+    use App\Service\VersioningService;
 
     class BookController extends AbstractController
     {
         public function __construct(
             private readonly BookRepository $bookRepository,
-            private readonly SerializerInterface $serializer,
+            //private readonly SerializerInterface $serializer,
             private readonly EntityManagerInterface $entityManager,
             private readonly RequestStack $requestStack,
             private readonly UrlGeneratorInterface $urlGenerator,
             private readonly AuthorRepository $authorRepository,
             private readonly ValidatorInterface $validator,
-            private readonly TagAwareCacheInterface $cache
+            private readonly TagAwareCacheInterface $cache,
+            private readonly SerializerInterface $serializer,
+            private readonly VersioningService $versioningService
         ){}
 
 
@@ -50,7 +55,10 @@
                 echo ("pas encore en cache\n");
                 $item->tag('booksListCache');
                 $books = $this->bookRepository->findAllWithPagination($page, $limit);
-                return $this->serializer->serialize($books, 'json', ['groups' => 'getBooks']);
+
+                $context = SerializationContext::create()->setGroups(['getBooks']);
+
+                return $this->serializer->serialize($books, 'json', $context);
             });
 
             return new JsonResponse($jsonBooks, Response::HTTP_OK, [], true);
@@ -61,7 +69,26 @@
         #[Route('/api/books/{id}', name: 'bookDetails', methods: ['GET'])]
         public function bookDetails(Book $book): JsonResponse
         {
-            $bookJson = $this->serializer->serialize($book, 'json', ['groups' => 'getBooks']);
+//            $idCache = 'book_details_'.$book->getId();
+//            $context = SerializationContext::create()->setGroups(['getBooks']);
+//            $context->setVersion('2.0');
+//            $bookJson = $this->cache->get($idCache, function (ItemInterface $item) use ($book, $context) {
+//                // Debug
+//                echo ("Pas encore en cache\n");
+//                $item->tag('booksListCache');
+//
+//                return $this->serializer->serialize($book, 'json', $context);
+//            });
+//            //$bookJson = $this->serializer->serialize($book, 'json', $context);
+//
+//            return new JsonResponse($bookJson, Response::HTTP_OK, [], true);
+
+            ## version sans cache
+            $context = SerializationContext::create()->setGroups(['getBooks']);
+            $version = $this->versioningService->getVersion();
+            $context->setVersion($version);
+
+            $bookJson = $this->serializer->serialize($book, 'json', $context);
 
             return new JsonResponse($bookJson, Response::HTTP_OK, [], true);
         }
@@ -105,7 +132,8 @@
             $this->entityManager->flush();
 
             // Get book created
-            $bookCreated = $this->serializer->serialize($book, 'json', ['groups' => 'getBooks']);
+            $context = SerializationContext::create()->setGroups(['getBooks']);
+            $bookCreated = $this->serializer->serialize($book, 'json', $context);
 
             // Location
             $location = $this->urlGenerator->generate('bookDetails', ['id' => $book->getId()], UrlGeneratorInterface::ABSOLUTE_URL);
@@ -119,7 +147,11 @@
         public function updateBook(Book $currentBook): JsonResponse
         {
             $request = $this->requestStack->getCurrentRequest();
-            $this->serializer->deserialize($request->getContent(), Book::class, 'json', [AbstractNormalizer::OBJECT_TO_POPULATE => $currentBook]);
+            $updatedBook = $this->serializer->deserialize($request->getContent(), Book::class, 'json');//, [AbstractNormalizer::OBJECT_TO_POPULATE => $currentBook]);
+
+            $currentBook->setTitle($updatedBook->getTitle());
+            $currentBook->setCoverText($updatedBook->getCoverText());
+            $currentBook->setAuthor($updatedBook->getAuthor());
 
             // Bind an author to this book
             $content = $request->toArray();
@@ -131,6 +163,8 @@
             if ($errors->count() > 0) {
                 return new JsonResponse($this->serializer->serialize($errors, 'json'), Response::HTTP_BAD_REQUEST, [], true);
             }
+
+            $this->cache->invalidateTags(['booksListCache']);
 
             $this->entityManager->persist($currentBook);
             $this->entityManager->flush();

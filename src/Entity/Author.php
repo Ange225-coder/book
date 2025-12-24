@@ -6,9 +6,49 @@
     use Doctrine\Common\Collections\ArrayCollection;
     use Doctrine\Common\Collections\Collection;
     use Doctrine\ORM\Mapping as ORM;
-    use Symfony\Component\Serializer\Annotation\Groups;
+    //use Symfony\Component\Serializer\Annotation\Groups;
+    use JMS\Serializer\Annotation\Groups;
     use Symfony\Component\Validator\Constraints as Assert;
+    use Hateoas\Configuration\Annotation as Hateoas;
 
+
+    // GET {{id}}
+    #[Hateoas\Relation(
+        'self',
+        href: new Hateoas\Route(
+            'authorDetails',
+            parameters: ['id' => 'expr(object.getId())']
+        ),
+        exclusion: new Hateoas\Exclusion(
+            groups: ['getAuthors']
+        )
+    )]
+
+    // PUT {{id}}
+    #[Hateoas\Relation(
+        'update',
+        href: new Hateoas\Route(
+            'update_author',
+            parameters: ['id' => 'expr(object.getId())']
+        ),
+        exclusion: new Hateoas\Exclusion(
+            groups: ['getAuthors'],
+            excludeIf: "expr(not is_granted('ROLE_ADMIN'))"
+        )
+    )]
+
+    // DELETE {{id}}
+    #[Hateoas\Relation(
+        'delete',
+        href: new Hateoas\Route(
+            'remove_author',
+            parameters: ['id' => 'expr(object.getId())']
+        ),
+        exclusion: new Hateoas\Exclusion(
+            groups: ['getAuthors'],
+            excludeIf: "expr(not is_granted('ROLE_ADMIN'))"
+        )
+    )]
     #[ORM\Entity(repositoryClass: AuthorRepository::class)]
     class Author
     {
